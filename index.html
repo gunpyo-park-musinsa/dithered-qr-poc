@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dithered QR PoC</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+  :root { --bg:#f5f5f7; --card:#fff; --border:#ddd; --ok:#0a7d33; --fail:#c0392b; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,'Apple SD Gothic Neo',sans-serif; margin:0; background:var(--bg); color:#222; }
+  header { padding:16px 24px; background:#fff; border-bottom:1px solid var(--border); }
+  header h1 { margin:0; font-size:18px; }
+  header p { margin:4px 0 0; font-size:12px; color:#777; }
+  main { display:flex; gap:20px; padding:20px 24px; flex-wrap:wrap; }
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; }
+  #controls { width:300px; flex-shrink:0; }
+  #controls label { display:block; font-size:12px; font-weight:600; margin:12px 0 4px; }
+  #controls input[type=text], #controls select { width:100%; padding:6px 8px; font-size:13px; border:1px solid var(--border); border-radius:6px; }
+  #controls input[type=file] { width:100%; font-size:12px; }
+  .preset-row { display:flex; gap:8px; margin-top:6px; }
+  .preset-row button { flex:1; padding:6px; font-size:12px; border:1px solid var(--border); border-radius:6px; background:#fafafa; cursor:pointer; }
+  .preset-row button.active { border-color:#333; background:#333; color:#fff; }
+  #renderBtn { width:100%; margin-top:16px; padding:10px; font-size:14px; font-weight:700; border:none; border-radius:8px; background:#111; color:#fff; cursor:pointer; }
+  #results { flex:1; min-width:600px; display:flex; flex-direction:column; gap:16px; }
+  .qr-row { display:flex; gap:20px; flex-wrap:wrap; }
+  .qr-box { text-align:center; }
+  .qr-box h3 { margin:0 0 8px; font-size:13px; color:#555; }
+  .qr-box canvas { border:1px solid var(--border); image-rendering:pixelated; width:360px; height:360px; }
+  #sizeInfo { font-size:12px; color:#666; }
+  #decodeResult { font-size:13px; font-weight:700; padding:8px 12px; border-radius:6px; }
+  #decodeResult.ok { background:#e6f6ec; color:var(--ok); }
+  #decodeResult.fail { background:#fdecea; color:var(--fail); }
+  #downloadBtn { padding:8px 16px; font-size:13px; border:1px solid var(--border); border-radius:6px; background:#fff; cursor:pointer; }
+  #scanLog table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
+  #scanLog th, #scanLog td { border:1px solid var(--border); padding:4px 8px; text-align:left; }
+  #scanLog input, #scanLog select { font-size:12px; padding:4px; border:1px solid var(--border); border-radius:4px; }
+  .log-form { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .hint { font-size:11px; color:#999; margin-top:2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dithered QR PoC</h1>
+  <p>Image-embedded QR demo — no brand assets (placeholder only)</p>
+</header>
+<main>
+  <div class="panel" id="controls">
+    <label>Target URL</label>
+    <input type="text" id="urlInput" value="https://example.com/sh/ABC123">
+    <div class="hint" id="urlLen"></div>
+
+    <label>임베드 이미지</label>
+    <input type="file" id="fileInput" accept="image/*">
+    <div class="preset-row">
+      <button data-preset="A" class="active">M</button>
+      <button data-preset="B">29</button>
+      <button data-preset="😎">😎</button>
+      <button data-preset="🔥">🔥</button>
+      <button data-preset="💖">💖</button>
+      <button data-preset="✨">✨</button>
+    </div>
+
+    <label>EC 레벨</label>
+    <select id="ecSelect">
+      <option>L</option><option>M</option><option>Q</option><option selected>H</option>
+    </select>
+
+    <label>Quiet zone (module)</label>
+    <select id="quietSelect">
+      <option>2</option><option selected>4</option><option>6</option>
+    </select>
+
+    <label>Sub-grid</label>
+    <select id="subSelect">
+      <option selected>3</option><option>5</option>
+    </select>
+
+    <button id="renderBtn">렌더</button>
+  </div>
+
+  <div id="results">
+    <div class="panel">
+      <div class="qr-row">
+        <div class="qr-box"><h3>표준 QR (비교용)</h3><canvas id="plainCanvas"></canvas></div>
+        <div class="qr-box"><h3>Dithered QR</h3><canvas id="ditherCanvas"></canvas></div>
+      </div>
+      <p id="sizeInfo"></p>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <span id="decodeResult"></span>
+        <button id="downloadBtn">PNG 저장 (2x)</button>
+      </div>
+    </div>
+
+    <div class="panel" id="scanLog">
+      <h3 style="margin:0; font-size:13px;">실기기 스캔 테스트 로그</h3>
+      <p class="hint">PNG 저장 → 인쇄 또는 화면 표시 → 폰 카메라로 스캔 후 결과 기록 (localStorage 보존)</p>
+      <div class="log-form">
+        <input type="text" id="logDevice" placeholder="기기 (iPhone 17 등)" style="width:140px">
+        <input type="text" id="logCond" placeholder="조건 (실내 3m 등)" style="width:120px">
+        <select id="logResult"><option>성공</option><option>실패</option></select>
+        <input type="text" id="logNote" placeholder="메모" style="flex:1">
+        <button id="logAdd">기록</button>
+      </div>
+      <table><thead><tr><th>시각</th><th>설정</th><th>기기</th><th>조건</th><th>결과</th><th>메모</th></tr></thead>
+        <tbody id="logBody"></tbody></table>
+    </div>
+  </div>
+</main>
+
+<script>
+const ALIGNMENT_POS = [null,
+  [],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],
+  [6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],
+  [6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],
+  [6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],
+  [6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],
+  [6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]];
+
+function buildFunctionMask(count) {
+  const version = (count - 17) / 4;
+  const mask = new Uint8Array(count * count);
+  const set = (r, c) => { if (r >= 0 && r < count && c >= 0 && c < count) mask[r * count + c] = 1; };
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) set(r, c);
+  for (let r = 0; r < 9; r++) for (let c = count - 8; c < count; c++) set(r, c);
+  for (let r = count - 8; r < count; r++) for (let c = 0; c < 9; c++) set(r, c);
+  for (let i = 0; i < count; i++) { set(6, i); set(i, 6); }
+  const centers = ALIGNMENT_POS[version] || [];
+  for (const cr of centers) for (const cc of centers) {
+    const nearFinder = (cr <= 8 && cc <= 8) || (cr <= 8 && cc >= count - 9) || (cr >= count - 9 && cc <= 8);
+    if (nearFinder) continue;
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) set(cr + dr, cc + dc);
+  }
+  if (version >= 7) {
+    for (let r = 0; r < 6; r++) for (let c = count - 11; c < count - 8; c++) { set(r, c); set(c, r); }
+  }
+  return mask;
+}
+
+function makeQr(url, ec) {
+  const qr = qrcode(0, ec);
+  qr.addData(url);
+  qr.make();
+  return qr;
+}
+
+function coverLuminance(img, size) {
+  const off = document.createElement('canvas');
+  off.width = off.height = size;
+  const ctx = off.getContext('2d');
+  ctx.fillStyle = '#888';
+  ctx.fillRect(0, 0, size, size);
+  const scale = Math.max(size / img.width, size / img.height);
+  const w = img.width * scale, h = img.height * scale;
+  ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+  const data = ctx.getImageData(0, 0, size, size).data;
+  const lum = new Float32Array(size * size);
+  for (let i = 0; i < lum.length; i++) {
+    lum[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) / 255;
+  }
+  return stretchContrast(lum);
+}
+
+function stretchContrast(lum, boost = 1.5) {
+  const sorted = Float32Array.from(lum).sort();
+  const lo = sorted[Math.floor(sorted.length * 0.02)];
+  const hi = sorted[Math.floor(sorted.length * 0.98)];
+  const range = Math.max(hi - lo, 0.05);
+  for (let i = 0; i < lum.length; i++) {
+    const v = (lum[i] - lo) / range;
+    lum[i] = Math.min(1, Math.max(0, 0.5 + (v - 0.5) * boost));
+  }
+  return lum;
+}
+
+function ditherWithQr(qr, lum, sub) {
+  const count = qr.getModuleCount();
+  const size = count * sub;
+  const mid = Math.floor(sub / 2);
+  const funcMask = buildFunctionMask(count);
+  const err = new Float32Array(size * size);
+  const out = new Uint8Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = y * size + x;
+      const mr = Math.floor(y / sub), mc = Math.floor(x / sub);
+      const isFunc = funcMask[mr * count + mc] === 1;
+      const isCenter = (y % sub === mid) && (x % sub === mid);
+      const dark = qr.isDark(mr, mc);
+      const old = lum[idx] + err[idx];
+      let val;
+      if (isFunc || isCenter) val = dark ? 0 : 1;
+      else val = old < 0.5 ? 0 : 1;
+      out[idx] = val;
+      const e = old - val;
+      if (x + 1 < size) err[idx + 1] += e * 7 / 16;
+      if (y + 1 < size) {
+        if (x > 0) err[idx + size - 1] += e * 3 / 16;
+        err[idx + size] += e * 5 / 16;
+        if (x + 1 < size) err[idx + size + 1] += e * 1 / 16;
+      }
+    }
+  }
+  return { out, size, count };
+}
+
+function paintDithered(canvas, dither, quiet, sub, px) {
+  const { out, size, count } = dither;
+  const total = (count + quiet * 2) * sub * px;
+  const offset = quiet * sub * px;
+  canvas.width = canvas.height = total;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, total, total);
+  ctx.fillStyle = '#000';
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++)
+      if (out[y * size + x] === 0)
+        ctx.fillRect(offset + x * px, offset + y * px, px, px);
+  return total;
+}
+
+function paintPlain(canvas, qr, quiet, sub, px) {
+  const count = qr.getModuleCount();
+  const total = (count + quiet * 2) * sub * px;
+  const offset = quiet * sub * px;
+  const mpx = sub * px;
+  canvas.width = canvas.height = total;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, total, total);
+  ctx.fillStyle = '#000';
+  for (let r = 0; r < count; r++)
+    for (let c = 0; c < count; c++)
+      if (qr.isDark(r, c))
+        ctx.fillRect(offset + c * mpx, offset + r * mpx, mpx, mpx);
+}
+
+function makePlaceholder(kind) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 400;
+  const ctx = c.getContext('2d');
+  if (kind !== 'A' && kind !== 'B') {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.font = '360px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(kind, 200, 225);
+    return c;
+  }
+  if (kind === 'A') {
+    const g = ctx.createRadialGradient(200, 160, 30, 200, 200, 280);
+    g.addColorStop(0, '#fff'); g.addColorStop(1, '#111');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#000';
+    ctx.font = '900 170px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('M', 200, 210);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 400, 400);
+    g.addColorStop(0, '#eee'); g.addColorStop(0.5, '#666'); g.addColorStop(1, '#ddd');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(200, 200, 130, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.font = '900 120px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('29', 200, 212);
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.font = '700 24px sans-serif';
+  ctx.fillText('PLACEHOLDER', 200, 370);
+  return c;
+}
+
+let currentImage = makePlaceholder(decodeURIComponent(location.hash.slice(1)) || 'A');
+let lastConfig = '';
+
+const $ = id => document.getElementById(id);
+
+function render() {
+  const url = $('urlInput').value.trim();
+  const ec = $('ecSelect').value;
+  const quiet = parseInt($('quietSelect').value, 10);
+  const sub = parseInt($('subSelect').value, 10);
+  $('urlLen').textContent = `${url.length}자`;
+
+  let qr;
+  try { qr = makeQr(url, ec); }
+  catch (e) { alert('QR 생성 실패: ' + e.message); return; }
+
+  const count = qr.getModuleCount();
+  const version = (count - 17) / 4;
+  const px = Math.max(2, Math.floor(720 / ((count + quiet * 2) * sub)));
+
+  paintPlain($('plainCanvas'), qr, quiet, sub, px);
+
+  const lum = coverLuminance(currentImage, count * sub);
+  const dither = ditherWithQr(qr, lum, sub);
+  const totalPx = paintDithered($('ditherCanvas'), dither, quiet, sub, px);
+
+  const mm = (totalPx / 300 * 25.4).toFixed(1);
+  $('sizeInfo').textContent =
+    `버전 ${version} (${count}×${count} 모듈) · EC ${ec} · sub-grid ${sub}×${sub} · quiet ${quiet} · ` +
+    `캔버스 ${totalPx}×${totalPx}px (300dpi 인쇄 시 약 ${mm}×${mm}mm)`;
+
+  lastConfig = `EC=${ec} sub=${sub} quiet=${quiet} v${version}`;
+  selfDecode(url);
+}
+
+function selfDecode(expected) {
+  const canvas = $('ditherCanvas');
+  const ctx = canvas.getContext('2d');
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const result = jsQR(data.data, data.width, data.height);
+  const el = $('decodeResult');
+  if (result && result.data === expected) {
+    el.textContent = '✅ 자체 디코드 성공: ' + result.data;
+    el.className = 'ok';
+  } else if (result) {
+    el.textContent = '⚠️ 디코드됐지만 내용 불일치: ' + result.data;
+    el.className = 'fail';
+  } else {
+    el.textContent = '❌ 자체 디코드 실패 — EC 상향 또는 sub-grid 축소 필요';
+    el.className = 'fail';
+  }
+}
+
+function download() {
+  const src = $('ditherCanvas');
+  const c = document.createElement('canvas');
+  c.width = src.width * 2; c.height = src.height * 2;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(src, 0, 0, c.width, c.height);
+  const a = document.createElement('a');
+  a.download = 'dithered-qr.png';
+  a.href = c.toDataURL('image/png');
+  a.click();
+}
+
+const LOG_KEY = 'dithered-qr-scan-log';
+function loadLog() {
+  const rows = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+  $('logBody').innerHTML = rows.map(r =>
+    `<tr><td>${r.ts}</td><td>${r.cfg}</td><td>${r.device}</td><td>${r.cond}</td><td>${r.result}</td><td>${r.note}</td></tr>`
+  ).join('');
+}
+function addLog() {
+  const rows = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+  rows.push({
+    ts: new Date().toLocaleString('ko-KR'),
+    cfg: lastConfig,
+    device: $('logDevice').value, cond: $('logCond').value,
+    result: $('logResult').value, note: $('logNote').value
+  });
+  localStorage.setItem(LOG_KEY, JSON.stringify(rows));
+  loadLog();
+}
+
+$('renderBtn').addEventListener('click', render);
+$('downloadBtn').addEventListener('click', download);
+$('logAdd').addEventListener('click', addLog);
+document.querySelectorAll('.preset-row button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.preset-row button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentImage = makePlaceholder(btn.dataset.preset);
+    $('fileInput').value = '';
+    render();
+  });
+});
+$('fileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => { currentImage = img; render(); };
+  img.src = URL.createObjectURL(file);
+});
+
+loadLog();
+render();
+</script>
+</body>
+</html>
