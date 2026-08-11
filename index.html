@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dithered QR PoC</title>
+<title>MUSAIQ — Studio</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
@@ -42,13 +43,13 @@
 </head>
 <body>
 <header>
-  <h1>Dithered QR PoC</h1>
-  <p>Image-embedded QR demo — no brand assets (placeholder only)</p>
+  <h1>MUSAIQ <span style="font-weight:400; color:#888;">— Studio</span></h1>
+  <p>이미지를 품은 QR 생성 스튜디오 — no brand assets (placeholder only)</p>
 </header>
 <main>
   <div class="panel" id="controls">
     <label>Target URL</label>
-    <input type="text" id="urlInput" value="https://example.com/sh/ABC123">
+    <input type="text" id="urlInput" value="https://mss.kr/sh/ABC123">
     <div class="hint" id="urlLen"></div>
 
     <label>임베드 이미지</label>
@@ -296,7 +297,8 @@ function makePlaceholder(kind) {
   return c;
 }
 
-let currentImage = makePlaceholder(decodeURIComponent(location.hash.slice(1)) || 'A');
+const initialPreset = decodeURIComponent(location.hash.slice(1)) || 'A';
+let currentImage = makePlaceholder(initialPreset);
 let lastConfig = '';
 
 const $ = id => document.getElementById(id);
@@ -393,6 +395,13 @@ document.querySelectorAll('.preset-row button').forEach(btn => {
     render();
   });
 });
+document.querySelectorAll('#controls select').forEach(el => el.addEventListener('change', render));
+$('urlInput').addEventListener('change', render);
+const initBtn = document.querySelector(`.preset-row button[data-preset="${initialPreset}"]`);
+if (initBtn) {
+  document.querySelectorAll('.preset-row button').forEach(b => b.classList.remove('active'));
+  initBtn.classList.add('active');
+}
 $('fileInput').addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;

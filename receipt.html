@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MOSAIQ — Receipt Edition</title>
+<title>MUSAIQ — Receipt Edition</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
@@ -47,13 +48,13 @@
 </head>
 <body>
 <header>
-  <h1>MOSAIQ <span style="font-weight:400; color:#888;">— Receipt Edition</span></h1>
-  <p>이미지를 품은 QR, 영수증 위에서 · mss-pos receiptPaymentPrint 레이아웃 기반 (78mm·42자 폭) · 더미 데이터 · 로컬 전용</p>
+  <h1>MUSAIQ <span style="font-weight:400; color:#888;">— Receipt Edition</span></h1>
+  <p>이미지를 품은 QR, 영수증 위에서 · 실제 POS 영수증 레이아웃 기반 (78mm·42자 폭) · 더미 데이터 · 로컬 전용</p>
 </header>
 <main>
   <div id="controls">
     <label>이벤트 QR URL</label>
-    <input type="text" id="urlInput" value="https://example.com/sh/ABC123">
+    <input type="text" id="urlInput" value="https://mss.kr/sh/ABC123">
 
     <label>임베드 이미지</label>
     <input type="file" id="fileInput" accept="image/*">
@@ -367,6 +368,13 @@ document.querySelectorAll('.preset-row button').forEach(btn => {
     render();
   });
 });
+document.querySelectorAll('#controls select').forEach(el => el.addEventListener('change', render));
+$('urlInput').addEventListener('change', render);
+const initBtn = document.querySelector(`.preset-row button[data-preset="${initialPreset}"]`);
+if (initBtn) {
+  document.querySelectorAll('.preset-row button').forEach(b => b.classList.remove('active'));
+  initBtn.classList.add('active');
+}
 $('fileInput').addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
