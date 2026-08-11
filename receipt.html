@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>영수증 Dithered QR 목업</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,'Apple SD Gothic Neo',sans-serif; margin:0; background:#4a4d52; color:#222; }
+  header { padding:14px 24px; background:#fff; border-bottom:1px solid #ddd; }
+  header h1 { margin:0; font-size:17px; }
+  header p { margin:4px 0 0; font-size:12px; color:#777; }
+  main { display:flex; gap:24px; padding:24px; align-items:flex-start; flex-wrap:wrap; }
+  #controls { width:290px; background:#fff; border-radius:10px; padding:16px; flex-shrink:0; }
+  #controls label { display:block; font-size:12px; font-weight:600; margin:12px 0 4px; }
+  #controls input[type=text], #controls select { width:100%; padding:6px 8px; font-size:13px; border:1px solid #ddd; border-radius:6px; }
+  .preset-row { display:flex; gap:8px; margin-top:6px; }
+  .preset-row button { flex:1; padding:6px; font-size:12px; border:1px solid #ddd; border-radius:6px; background:#fafafa; cursor:pointer; }
+  .preset-row button.active { border-color:#333; background:#333; color:#fff; }
+  #renderBtn { width:100%; margin-top:16px; padding:10px; font-weight:700; border:none; border-radius:8px; background:#111; color:#fff; cursor:pointer; }
+  #decodeResult { display:block; margin-top:10px; font-size:12px; font-weight:700; padding:8px 10px; border-radius:6px; }
+  #decodeResult.ok { background:#e6f6ec; color:#0a7d33; }
+  #decodeResult.fail { background:#fdecea; color:#c0392b; }
+  #downloadBtn { width:100%; margin-top:8px; padding:8px; font-size:13px; border:1px solid #ddd; border-radius:6px; background:#fff; cursor:pointer; }
+
+  .paper-wrap { filter:drop-shadow(0 6px 16px rgba(0,0,0,0.45)); }
+  .paper {
+    width:340px; background:#fdfdfa; padding:18px 16px 8px;
+    font-family:'Menlo','Courier New',monospace; font-size:11.5px; line-height:1.35;
+    white-space:pre; color:#111;
+  }
+  .paper .center { text-align:center; white-space:normal; }
+  .paper .title { font-size:15px; font-weight:700; letter-spacing:1px; }
+  .paper .row { display:flex; justify-content:space-between; white-space:pre; }
+  .paper .big { font-size:15px; font-weight:700; }
+  .paper .line { overflow:hidden; }
+  .tail {
+    height:14px; width:340px; background:#fdfdfa;
+    clip-path:polygon(0 0,100% 0,100% 30%,95% 100%,90% 30%,85% 100%,80% 30%,75% 100%,70% 30%,65% 100%,60% 30%,55% 100%,50% 30%,45% 100%,40% 30%,35% 100%,30% 30%,25% 100%,20% 30%,15% 100%,10% 30%,5% 100%,0 30%);
+  }
+  #qrArea { text-align:center; padding:6px 0; }
+  #qrArea canvas { image-rendering:pixelated; }
+  .barcode { height:44px; margin:6px 20px 2px; background:repeating-linear-gradient(90deg,#111 0 2px,#fff 2px 4px,#111 4px 5px,#fff 5px 8px,#111 8px 11px,#fff 11px 13px); }
+</style>
+</head>
+<body>
+<header>
+  <h1>영수증 이벤트 QR — Dithered QR 목업</h1>
+  <p>mss-pos receiptPaymentPrint 레이아웃 기반 (78mm·42자 폭) · 더미 데이터 · 로컬 전용 · placeholder only</p>
+</header>
+<main>
+  <div id="controls">
+    <label>이벤트 QR URL</label>
+    <input type="text" id="urlInput" value="https://example.com/sh/ABC123">
+
+    <label>임베드 이미지</label>
+    <input type="file" id="fileInput" accept="image/*">
+    <div class="preset-row">
+      <button data-preset="A" class="active">M</button>
+      <button data-preset="B">29</button>
+      <button data-preset="💖">💖</button>
+      <button data-preset="SALE">SALE</button>
+      <button data-preset="MS">MS</button>
+    </div>
+
+    <label>EC 레벨</label>
+    <select id="ecSelect"><option>L</option><option>M</option><option>Q</option><option selected>H</option></select>
+
+    <label>Sub-grid</label>
+    <select id="subSelect"><option selected>3</option><option>5</option></select>
+
+    <label>QR 표시 크기</label>
+    <select id="qrSizeSelect">
+      <option value="140">소 (약 30mm)</option>
+      <option value="180" selected>중 (약 38mm)</option>
+      <option value="220">대 (약 47mm)</option>
+    </select>
+
+    <label>QR 스타일 (비교용)</label>
+    <select id="qrStyleSelect">
+      <option value="dither" selected>Dithered</option>
+      <option value="plain">표준 흑백</option>
+    </select>
+
+    <button id="renderBtn">렌더</button>
+    <span id="decodeResult"></span>
+    <button id="downloadBtn">영수증 PNG 저장 (2x)</button>
+  </div>
+
+  <div class="paper-wrap">
+    <div class="paper" id="paper">
+      <div class="center title">신용카드 결제 [고객용]</div>
+      <br>
+      <div>매 장 명    : 테스트 매장 (PoC)</div>
+      <div>사업자 번호 : 000-00-00000</div>
+      <div>대 표 자    : 홍길동</div>
+      <div>주 소       : 서울특별시 성동구 OO로 00</div>
+      <div>T E L       : 02-0000-0000</div>
+      <div>POS ID      : POS-01</div>
+      <div>전 표 번 호 : 20260811-0001-0042</div>
+      <div>등 록 일 시 : 2026-08-11 18:30:12</div>
+      <div class="line">==========================================</div>
+      <div>품명/코드              단가  수량       금액</div>
+      <div class="line">------------------------------------------</div>
+      <div>테스트 반팔 티셔츠</div>
+      <div>(1000000001) / BLACK · L</div>
+      <div class="row"><span></span><span>29,000     1     29,000</span></div>
+      <div>테스트 와이드 데님 팬츠</div>
+      <div>(1000000002) / MID BLUE · 30</div>
+      <div class="row"><span></span><span>59,000     1     59,000</span></div>
+      <div class="line">------------------------------------------</div>
+      <div class="row"><span>[상품 할인]</span><span>-8,000</span></div>
+      <div class="row"><span>[고객 등급 할인]</span><span>-2,000</span></div>
+      <div class="line">------------------------------------------</div>
+      <div class="row"><span>총 수량</span><span>2</span></div>
+      <div class="row"><span>총 금액</span><span>88,000</span></div>
+      <div class="row"><span>총 할인금액</span><span>-10,000</span></div>
+      <div class="line">------------------------------------------</div>
+      <br>
+      <div class="row big"><span>** 실결제금액 **</span><span>78,000</span></div>
+      <br>
+      <div class="row"><span>과세물품가액</span><span>70,909</span></div>
+      <div class="row"><span>부가세</span><span>7,091</span></div>
+      <div class="line">==========================================</div>
+      <div class="row"><span>테스트카드(테스트사)</span><span>78,000</span></div>
+      <div class="row"><span>카드번호</span><span>1234-56**-****-7890</span></div>
+      <div class="row"><span>승인번호</span><span>00000000</span></div>
+      <div class="row"><span>승인일자(할부)</span><span>2026/08/11 (일시불)</span></div>
+      <div class="line">------------------------------------------</div>
+      <div class="center" style="font-weight:700; padding-top:6px;">이벤트 참여하고 적립금 받기!</div>
+      <div class="center">아래 QR을 스캔해 주세요</div>
+      <div id="qrArea"><canvas id="qrCanvas"></canvas></div>
+      <div class="center" style="font-size:10.5px; color:#333;">* 자세한 내용은 매장 직원에게 문의해 주세요</div>
+      <div class="line">------------------------------------------</div>
+      <div class="barcode"></div>
+      <div class="center" style="font-size:10.5px;">20260811-0001-0042</div>
+      <div class="center" style="padding:8px 0 4px;">감사합니다</div>
+    </div>
+    <div class="tail"></div>
+  </div>
+</main>
+
+<script>
+const ALIGNMENT_POS = [null,
+  [],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],
+  [6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90]];
+
+function buildFunctionMask(count) {
+  const version = (count - 17) / 4;
+  const mask = new Uint8Array(count * count);
+  const set = (r, c) => { if (r >= 0 && r < count && c >= 0 && c < count) mask[r * count + c] = 1; };
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) set(r, c);
+  for (let r = 0; r < 9; r++) for (let c = count - 8; c < count; c++) set(r, c);
+  for (let r = count - 8; r < count; r++) for (let c = 0; c < 9; c++) set(r, c);
+  for (let i = 0; i < count; i++) { set(6, i); set(i, 6); }
+  const centers = ALIGNMENT_POS[version] || [];
+  for (const cr of centers) for (const cc of centers) {
+    const nearFinder = (cr <= 8 && cc <= 8) || (cr <= 8 && cc >= count - 9) || (cr >= count - 9 && cc <= 8);
+    if (nearFinder) continue;
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) set(cr + dr, cc + dc);
+  }
+  if (version >= 7) {
+    for (let r = 0; r < 6; r++) for (let c = count - 11; c < count - 8; c++) { set(r, c); set(c, r); }
+  }
+  return mask;
+}
+
+function coverLuminance(img, size) {
+  const off = document.createElement('canvas');
+  off.width = off.height = size;
+  const ctx = off.getContext('2d');
+  ctx.fillStyle = '#888';
+  ctx.fillRect(0, 0, size, size);
+  const scale = Math.max(size / img.width, size / img.height);
+  const w = img.width * scale, h = img.height * scale;
+  ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+  const data = ctx.getImageData(0, 0, size, size).data;
+  const lum = new Float32Array(size * size);
+  for (let i = 0; i < lum.length; i++)
+    lum[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) / 255;
+  return stretchContrast(lum);
+}
+
+function stretchContrast(lum, boost = 1.5) {
+  const sorted = Float32Array.from(lum).sort();
+  const lo = sorted[Math.floor(sorted.length * 0.02)];
+  const hi = sorted[Math.floor(sorted.length * 0.98)];
+  const range = Math.max(hi - lo, 0.05);
+  for (let i = 0; i < lum.length; i++) {
+    const v = (lum[i] - lo) / range;
+    lum[i] = Math.min(1, Math.max(0, 0.5 + (v - 0.5) * boost));
+  }
+  return lum;
+}
+
+function ditherWithQr(qr, lum, sub) {
+  const count = qr.getModuleCount();
+  const size = count * sub;
+  const mid = Math.floor(sub / 2);
+  const funcMask = buildFunctionMask(count);
+  const err = new Float32Array(size * size);
+  const out = new Uint8Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = y * size + x;
+      const mr = Math.floor(y / sub), mc = Math.floor(x / sub);
+      const isFunc = funcMask[mr * count + mc] === 1;
+      const isCenter = (y % sub === mid) && (x % sub === mid);
+      const dark = qr.isDark(mr, mc);
+      const old = lum[idx] + Math.max(-0.75, Math.min(0.75, err[idx]));
+      let val;
+      if (isFunc || isCenter) val = dark ? 0 : 1;
+      else val = old < 0.5 ? 0 : 1;
+      out[idx] = val;
+      const e = isFunc ? 0 : old - val;
+      if (x + 1 < size) err[idx + 1] += e * 7 / 16;
+      if (y + 1 < size) {
+        if (x > 0) err[idx + size - 1] += e * 3 / 16;
+        err[idx + size] += e * 5 / 16;
+        if (x + 1 < size) err[idx + size + 1] += e * 1 / 16;
+      }
+    }
+  }
+  return { out, size, count };
+}
+
+function makePlaceholder(kind) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 400;
+  const ctx = c.getContext('2d');
+  if (kind === 'SALE') {
+    ctx.fillStyle = '#e4002b';
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = '900 110px sans-serif';
+    ctx.fillText('SUPER', 200, 105);
+    ctx.fillText('SALE', 200, 205);
+    ctx.font = '900 44px sans-serif';
+    ctx.fillText('スーパーセール', 200, 262);
+    ctx.fillText('超级特卖 슈퍼세일', 200, 312);
+    ctx.font = '700 34px sans-serif';
+    ctx.fillText('musinsa standard', 200, 372);
+    return c;
+  }
+  if (kind === 'MS') {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#111';
+    ctx.textAlign = 'center';
+    ctx.font = '700 92px sans-serif';
+    ctx.fillText('musinsa', 200, 180);
+    ctx.fillText('standard', 200, 275);
+    return c;
+  }
+  if (kind !== 'A' && kind !== 'B') {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.font = '360px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(kind, 200, 225);
+    return c;
+  }
+  if (kind === 'A') {
+    const g = ctx.createRadialGradient(200, 160, 30, 200, 200, 280);
+    g.addColorStop(0, '#fff'); g.addColorStop(1, '#111');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#000';
+    ctx.font = '900 170px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('M', 200, 210);
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#000';
+    ctx.font = '900 260px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('29', 200, 215);
+  }
+  return c;
+}
+
+const initialPreset = decodeURIComponent(location.hash.slice(1)) || 'A';
+let currentImage = makePlaceholder(initialPreset);
+const $ = id => document.getElementById(id);
+
+function render() {
+  const url = $('urlInput').value.trim();
+  const ec = $('ecSelect').value;
+  const sub = parseInt($('subSelect').value, 10);
+  const displaySize = parseInt($('qrSizeSelect').value, 10);
+  const style = $('qrStyleSelect').value;
+  const quiet = 4;
+
+  let qr;
+  try {
+    qr = qrcode(0, ec);
+    qr.addData(url);
+    qr.make();
+  } catch (e) { alert('QR 생성 실패: ' + e.message); return; }
+
+  const count = qr.getModuleCount();
+  const canvas = $('qrCanvas');
+  const px = Math.max(1, Math.round(displaySize / ((count + quiet * 2) * sub)));
+  const total = (count + quiet * 2) * sub * px;
+  const offset = quiet * sub * px;
+  canvas.width = canvas.height = total;
+  canvas.style.width = canvas.style.height = Math.min(total, displaySize + 40) + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fdfdfa';
+  ctx.fillRect(0, 0, total, total);
+  ctx.fillStyle = '#000';
+
+  if (style === 'plain') {
+    const mpx = sub * px;
+    for (let r = 0; r < count; r++)
+      for (let c = 0; c < count; c++)
+        if (qr.isDark(r, c)) ctx.fillRect(offset + c * mpx, offset + r * mpx, mpx, mpx);
+  } else {
+    const lum = coverLuminance(currentImage, count * sub);
+    const d = ditherWithQr(qr, lum, sub);
+    for (let y = 0; y < d.size; y++)
+      for (let x = 0; x < d.size; x++)
+        if (d.out[y * d.size + x] === 0)
+          ctx.fillRect(offset + x * px, offset + y * px, px, px);
+  }
+  selfDecode(url);
+}
+
+function selfDecode(expected) {
+  const canvas = $('qrCanvas');
+  const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  const result = jsQR(data.data, data.width, data.height);
+  const el = $('decodeResult');
+  if (result && result.data === expected) {
+    el.textContent = '✅ 자체 디코드 성공: ' + result.data;
+    el.className = 'ok';
+  } else {
+    el.textContent = result ? '⚠️ 내용 불일치: ' + result.data : '❌ 자체 디코드 실패 — EC 상향/sub 축소 필요';
+    el.className = 'fail';
+  }
+}
+
+function download() {
+  const paper = document.querySelector('.paper-wrap');
+  import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm').then(mod => {
+    mod.toPng(paper, { pixelRatio: 2, backgroundColor: null }).then(dataUrl => {
+      const a = document.createElement('a');
+      a.download = 'receipt-dithered-qr.png';
+      a.href = dataUrl;
+      a.click();
+    });
+  }).catch(() => alert('PNG 변환 라이브러리 로드 실패 (네트워크 확인)'));
+}
+
+$('renderBtn').addEventListener('click', render);
+$('downloadBtn').addEventListener('click', download);
+document.querySelectorAll('.preset-row button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.preset-row button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentImage = makePlaceholder(btn.dataset.preset);
+    $('fileInput').value = '';
+    render();
+  });
+});
+$('fileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => { currentImage = img; render(); };
+  img.src = URL.createObjectURL(file);
+});
+render();
+</script>
+</body>
+</html>
